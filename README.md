@@ -1,5 +1,5 @@
 # Crypto Arbitrage Framework
-A cryptocurrency arbitrage framework implemented with **`ccxt`** and **`cplex`**. It can be used to monitor multiple exchanges, find a multi-lateral arbitrage path which maximizes rate of return, calculate the optimal trading amount for each pair in the path given flexible constraints, and execute trades with multi-threading implemenation.
+A cryptocurrency arbitrage framework implemented with **`ccxt`** and **`cplex`**. It can be used to monitor multiple exchanges, find a multi-lateral arbitrage path which maximizes rate of return, calculate the optimal trading amount for each pair in the path given flexible constraints, and execute trades with multi-threading implemenation. Now with support for **flash loans** and **gasless meta transactions**!
 <p align="center"><img width="800" src="https://user-images.githubusercontent.com/30411828/58489243-725c2200-819d-11e9-8a17-ae8aa6d35ec2.PNG"></p>
 
 ## Why This Framework?
@@ -16,9 +16,20 @@ In the part of order execution, the framework utilizes **multi-threading** to pa
 #### 5. Scalability
 Integrated with **`ccxt`**, it's pretty easy for users to scale up their arbitrage scope to multiple exchanges by adding new exchanges to the [`exchanges.py`](https://github.com/hzjken/crypto-arbitrage-framework/blob/master/crypto/exchanges.py). With such, users can explore a **larger trading network** and **more arbitrage opportunities** but not limited to one or two exchanges only. 
 
+#### 6. Flash Loans
+The framework now supports **flash loans** through integration with Aave V2. Flash loans allow you to borrow assets without collateral, as long as you repay the loan within the same transaction. This enables arbitrage with minimal capital requirements, as you only need to pay for gas and the flash loan fee (0.09%).
+
+#### 7. Gasless Meta Transactions
+With **gasless meta transactions**, users can execute transactions without paying for gas, by having a relayer submit the transaction on their behalf. This is implemented using Biconomy's infrastructure, allowing for a better user experience and lower barrier to entry.
+
 ## Components
-The framework contains 3 main components, **`PathOptimizer`**, **`AmtOptimizer`** and **`TradeExecutor`**. **`PathOptimizer`** and **`AmtOptimizer`** runs a two-step optimization to find out a feasible and workable solution (optimal path and optimal trading amount). 
-**`TradeExecutor`** executes the solution generated from the previous two components.
+The framework contains 3 main components for the basic arbitrage functionality, plus 2 additional components for DeFi integration:
+
+### Basic Arbitrage Components
+**`PathOptimizer`**, **`AmtOptimizer`** and **`TradeExecutor`** form the core of the arbitrage framework. **`PathOptimizer`** and **`AmtOptimizer`** run a two-step optimization to find out a feasible and workable solution (optimal path and optimal trading amount). **`TradeExecutor`** executes the solution generated from the previous two components.
+
+### DeFi Integration Components
+**`FlashLoan`** and **`GaslessMetaTransactions`** provide integration with DeFi protocols. **`FlashLoan`** enables arbitrage with minimal capital through Aave V2 flash loans, while **`GaslessMetaTransactions`** allows for gasless trading through Biconomy. These components are integrated through the **`DeFiIntegration`** class, which combines them with the basic arbitrage functionality.
 
 ### PathOptimizer
 ```python
@@ -123,10 +134,18 @@ The **`TradeExecutor`** can only work if a workable solution can be provided fro
 
 ## Before Usage
 There are some preparation works you need to do before you can use this arbitrage framework.
-1. **`pip install ccxt`**, ccxt is a great open-source library that provides api to more than 100 crypto exchanges.
-2. **`pip install docplex`**, docplex is the python api for using cplex solver.
-3. install and setup cplex studio (I use the academic version, because community version has limitation on model size)
-4. add all the exchanges (supported by ccxt) you want to monitor and do arbitrage on in [`exchanges.py`](https://github.com/hzjken/crypto-arbitrage-framework/blob/master/crypto/exchanges.py) with the same format. If you only want to check whether there's arbitrage opporunity, you don't need to specify keys. But if you want to execute trades with this framework, add keys like this.
+1. **`pip install -r requirements.txt`** to install all dependencies, including:
+   - **ccxt**: A great open-source library that provides API to more than 100 crypto exchanges
+   - **docplex**: The Python API for using CPLEX solver
+   - **web3**: For interacting with Ethereum blockchain (required for flash loans and gasless transactions)
+   - **eth-account**: For signing Ethereum transactions
+   - **py-solc-x**: For compiling Solidity contracts
+   - **requests**: For making HTTP requests
+   - **python-dotenv**: For loading environment variables
+
+2. Install and setup CPLEX studio (I use the academic version, because community version has limitation on model size)
+
+3. Add all the exchanges (supported by ccxt) you want to monitor and do arbitrage on in [`exchanges.py`](https://github.com/hzjken/crypto-arbitrage-framework/blob/master/crypto/exchanges.py) with the same format. If you only want to check whether there's arbitrage opportunity, you don't need to specify keys. But if you want to execute trades with this framework, add keys like this:
 ```python
 exchanges = {
     'binance': ccxt.binance({
@@ -139,14 +158,23 @@ exchanges = {
     }),
 }
 ```
-5. check the trading commission rates for the exchanges you specify and put them in the variable `trading_fee` in [`info.py`](https://github.com/hzjken/crypto-arbitrage-framework/blob/master/crypto/info.py)
-6.  get an api key from coinmarketcap in order to fetch cryptocurrencies usd prices, and add it to function `get_crypto_prices` in [`utils.py`](https://github.com/hzjken/crypto-arbitrage-framework/blob/master/crypto/utils.py)
+
+4. Check the trading commission rates for the exchanges you specify and put them in the variable `trading_fee` in [`info.py`](https://github.com/hzjken/crypto-arbitrage-framework/blob/master/crypto/info.py)
+
+5. Get an API key from CoinMarketCap in order to fetch cryptocurrencies USD prices, and add it to function `get_crypto_prices` in [`utils.py`](https://github.com/hzjken/crypto-arbitrage-framework/blob/master/crypto/utils.py)
 ```python
 'X-CMC_PRO_API_KEY': 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
 ```
 
+6. For flash loans and gasless meta transactions, set up the required environment variables (see [.env.example](/.env.example)):
+   - `MAINNET_RPC_URL`: Ethereum RPC URL
+   - `BICONOMY_API_KEY`: API key for Biconomy (for gasless transactions)
+   - `PRIVATE_KEY`: Private key for signing transactions
+
 ## Usage Example
-Check [`main.py`](https://github.com/hzjken/crypto-arbitrage-framework/blob/master/crypto/main.py)
+Check [`main.py`](https://github.com/hzjken/crypto-arbitrage-framework/blob/master/crypto/main.py) for the basic arbitrage framework.
+
+For flash loans and gasless meta transactions, check [`defi_main.py`](https://github.com/hzjken/crypto-arbitrage-framework/blob/master/crypto/defi_main.py) and the [DeFi Integration documentation](DEFI_INTEGRATION.md).
 
 ## Something Else To Know
 1. This project is done on my personal interest, without rigorous test on the code, so check the code first and use it **at your own risk**.
