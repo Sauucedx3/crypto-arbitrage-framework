@@ -4,8 +4,11 @@ import ccxt # For dynamically creating exchange instances
 import traceback # For detailed error logging
 import logging # For logging
 import os # For creating directories
-import json # For trade history
+import json # For trade history / DB records
 from datetime import datetime # For trade history timestamp
+import importlib # For dynamic model import
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
 # Assuming the original 'crypto' directory is accessible in PYTHONPATH.
 import crypto.path_optimizer # PathOptimizer class will be used here
@@ -27,7 +30,10 @@ class ArbitrageRunner:
                  default_include_fiat=False,
                  default_inter_exchange_trading=True,
                  default_consider_init_bal=True, # PathOptimizer specific
-                 default_consider_inter_exc_bal=True # PathOptimizer specific
+                 default_consider_inter_exc_bal=True, # PathOptimizer specific
+                 # Database related params
+                 database_uri=None, 
+                 record_model_class_path=None # e.g., 'app.models.ArbitrageRecord'
                  ):
         
         self.status = "idle" # Initial status
@@ -36,7 +42,7 @@ class ArbitrageRunner:
         self.error_message = "" # Initialize as empty string to accumulate errors
         self.process = None # For the multiprocessing.Process object
         self.logger = None # Will be initialized by _setup_logger
-        self.trade_history_file = None # Will be set by _setup_logger
+        # self.trade_history_file = None # Will be set by _setup_logger - REMOVED, using DB now
         self.log_file_path = None # Will be set by _setup_logger
 
         self._setup_logger()
@@ -45,6 +51,14 @@ class ArbitrageRunner:
         self.exchange_configs = exchange_configs
         self.cmc_api_key = cmc_api_key
         self.trading_fees_config = trading_fees_config
+        
+        # Store DB related info for the separate process
+        self.database_uri = database_uri
+        self.record_model_class_path = record_model_class_path
+        self.db_engine = None
+        self.DbSession = None # This will be the session factory
+        self.RecordModel = None # This will be the dynamically imported model class
+
 
         # Store default optimizer parameters
         _sim_bal_parsed = None
@@ -103,13 +117,12 @@ class ArbitrageRunner:
 
         # PathOptimizer, AmtOptimizer, and TradeExecutor are NOT initialized here anymore.
         # They will be initialized at the beginning of run_main_loop().
-            self.path_optimizer = None
-            self.amt_optimizer = None
-            self.trade_executor = None
+        self.path_optimizer = None # Will be initialized in run_main_loop
+        self.amt_optimizer = None  # Will be initialized in run_main_loop
+        self.trade_executor = None # Will be initialized in run_main_loop
 
     def _setup_logger(self):
         self.logger = logging.getLogger(f"ArbitrageRunner_{id(self)}")
-        # Ensure logger is not reconfigured if already set (e.g. in a restart scenario if object persists)
         if not self.logger.handlers: 
             self.logger.setLevel(logging.INFO)
             logs_dir = 'logs'
@@ -120,10 +133,40 @@ class ArbitrageRunner:
             fh.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(process)d - %(levelname)s - %(message)s'))
             self.logger.addHandler(fh)
             self.logger.propagate = False
+        
+        # Removed file-based trade_history_file setup
+        # history_dir = 'history'
+        # os.makedirs(history_dir, exist_ok=True)
+        # self.trade_history_file = os.path.join(history_dir, 'trade_history.log')
 
-        history_dir = 'history'
-        os.makedirs(history_dir, exist_ok=True)
-        self.trade_history_file = os.path.join(history_dir, 'trade_history.log')
+    def _setup_db_session_for_process(self):
+        if self.database_uri and self.record_model_class_path and not self.DbSession:
+            self.logger.info(f"Process {os.getpid()}: Setting up DB engine for URI: {self.database_uri}")
+            try:
+                self.db_engine = create_engine(self.database_uri)
+                
+                # Dynamically import the model class
+                module_path, class_name = self.record_model_class_path.rsplit('.', 1)
+                module = importlib.import_module(module_path)
+                self.RecordModel = getattr(module, class_name)
+                
+                # The main Flask app should handle metadata.create_all(self.db_engine)
+                # However, if running this process completely independently and needing to ensure tables:
+                # self.RecordModel.metadata.create_all(self.db_engine) # Be cautious with this in a multi-process setup
+
+                self.DbSession = sessionmaker(bind=self.db_engine)
+                self.logger.info(f"Process {os.getpid()}: DB Session factory created successfully.")
+            except Exception as e:
+                self.logger.error(f"Process {os.getpid()}: Failed to set up DB session: {e}")
+                self.logger.error(traceback.format_exc())
+                self.db_engine = None
+                self.DbSession = None
+                self.RecordModel = None
+        elif not self.database_uri:
+            self.logger.warning(f"Process {os.getpid()}: Database URI not provided. DB recording disabled.")
+        elif not self.record_model_class_path:
+             self.logger.warning(f"Process {os.getpid()}: Record model class path not provided. DB recording disabled.")
+
 
     def set_optimizer_parameters(self, params_dict):
         self.logger.info(f"Received parameters to override optimizer settings: {params_dict}")
@@ -178,16 +221,18 @@ class ArbitrageRunner:
 
 
     def run_main_loop(self):
-        # Initialize optimizers here using self.current_optimizer_params
-        self.logger.info(f"run_main_loop started. Effective optimizer params: {self.current_optimizer_params}")
+        # Attempt to set up DB session factory if not already done
+        if not self.DbSession:
+            self._setup_db_session_for_process()
+
+        # Initialize optimizers using self.current_optimizer_params
+        self.logger.info(f"run_main_loop (PID: {os.getpid()}) started. Effective optimizer params: {self.current_optimizer_params}")
         
-        # --- Initialize PathOptimizer, AmtOptimizer, TradeExecutor ---
-        # These are now initialized at the start of each run_main_loop call
         self.path_optimizer = None
         self.amt_optimizer = None
         self.trade_executor = None
 
-        if self.status == "error": # Check for errors from __init__ (e.g. CCXT setup)
+        if self.status == "error": 
             self.logger.error(f"Aborting run_main_loop - Runner is in error state from __init__. Errors:\n{self.error_message}")
             return
         if not self.ccxt_exchange_instances: 
@@ -300,18 +345,38 @@ class ArbitrageRunner:
                         self.status = "opportunity_no_workable_solution"
                         history_entry_status = "opportunity_no_workable_solution"
                     
-                    # Save to trade history
-                    history_entry = {
-                        "timestamp_iso": datetime.utcnow().isoformat(),
-                        "opportunity_details": self.last_opportunity, # Save the rich last_opportunity object
-                        "status_after_processing": history_entry_status
-                    }
-                    try:
-                        with open(self.trade_history_file, 'a') as f:
-                            f.write(json.dumps(history_entry) + '\n')
-                    except Exception as e_hist:
-                        self.logger.error(f"Failed to write to trade history file {self.trade_history_file}: {e_hist}")
+                    # Save to database instead of file
+                    if self.DbSession and self.RecordModel:
+                        db_session_process = None # Initialize
+                        try:
+                            db_session_process = self.DbSession()
+                            notes_str = f"p_value: {self.last_opportunity.get('p_value')}, path_len: {len(self.last_opportunity.get('path_nodes', []))}"
+                            
+                            # Ensure complex objects are JSON strings for DB
+                            path_json_for_db = json.dumps(self.last_opportunity.get('path_details') or self.last_opportunity.get('path_nodes'))
+                            solution_json_for_db = json.dumps(self.last_opportunity.get('solution_details')) if self.last_opportunity.get('solution_details') else None
 
+                            new_record = self.RecordModel(
+                                opportunity_path_json=path_json_for_db,
+                                optimized_solution_json=solution_json_for_db,
+                                status=history_entry_status,
+                                expected_profit_estimate=self.last_opportunity.get('estimated_profit_usd'),
+                                notes=notes_str
+                                # actual_profit would be updated later if a real trade occurs and is confirmed
+                            )
+                            db_session_process.add(new_record)
+                            db_session_process.commit()
+                            self.logger.info(f"Arbitrage record saved to DB with status: {history_entry_status}")
+                        except Exception as e_db:
+                            self.logger.error(f"Failed to write arbitrage record to database: {e_db}")
+                            self.logger.error(traceback.format_exc())
+                            if db_session_process:
+                                db_session_process.rollback()
+                        finally:
+                            if db_session_process:
+                                db_session_process.close()
+                    else:
+                        self.logger.warning("DB session or RecordModel not available. Skipping DB record save.")
                 else:
                     self.logger.info("No arbitrage opportunity found in this iteration.")
                     self.status = "running_no_opportunity" 
@@ -398,69 +463,91 @@ class ArbitrageRunner:
             self.logger.warning(f"Process (PID: {current_pid}) found dead unexpectedly. Updating status to error.")
             self.status = "error"
             self.error_message = self.error_message or "Process died unexpectedly."
-            # self.process = None # Keep self.process object to see exitcode if needed, but mark not alive
 
         return {
             "status": self.status,
-            "last_opportunity": self.last_opportunity, # Ensure this is JSON serializable
+            "last_opportunity": self.last_opportunity, 
             "error_message": self.error_message,
             "process_alive": process_alive,
             "pid": current_pid,
             "log_file_path": self.log_file_path,
-            "trade_history_file": self.trade_history_file
+            # "trade_history_file": self.trade_history_file # Removed
         }
 
-# Example of how it might be used (for testing purposes, not part of the class):
-# This __main__ block needs to be updated to use the new __init__ signature
-# and also to correctly mock PathOptimizer if it's to be run standalone without actual crypto ops.
-# For now, this part is outdated due to prior refactoring of __init__.
 if __name__ == '__main__':
     # This __main__ block is for basic testing of ArbitrageRunner structure.
     # It requires that crypto.path_optimizer.PathOptimizer is properly mocked
-    # or that valid configurations are provided for a real run.
+    # and a mock database setup if DB interactions are to be tested here.
     
     print("--- Mocking PathOptimizer for standalone ArbitrageRunner test ---")
     class MockPathOptimizer:
         def __init__(self, exchange_instances, trading_fees, cmc_api_key, 
-                     path_length, simulated_bal, interex_trading_size, min_trading_limit):
-            self.logger = logging.getLogger("MockPathOptimizer") # Use logging for mocks too
-            self.logger.info(f"Initialized with {len(exchange_instances)} exchanges.")
+                     path_length, simulated_bal, interex_trading_size, min_trading_limit,
+                     # Added new params from current_optimizer_params to match signature
+                     include_fiat, inter_exchange_trading, consider_init_bal, consider_inter_exc_bal
+                     ):
+            self.logger = logging.getLogger("MockPathOptimizer")
+            self.logger.info(f"Initialized with {len(exchange_instances)} exchanges. Path length: {path_length}")
             self.path = None
-            self.trade_solution = None # For AmtOptimizer part
+            self.trade_solution = None 
+            # Store some params if needed by mock methods
+            self.simulated_bal = simulated_bal 
 
-        def init_currency_info(self):
-            self.logger.info("init_currency_info() called.")
+        def init_currency_info(self): self.logger.info("MockPathOptimizer: init_currency_info() called.")
         def find_arbitrage(self):
-            self.logger.info("find_arbitrage() called.")
-            # Simulate finding an opportunity sometimes
-            if time.time() % 15 < 7 : # Found every ~15s for 7s
-                self.path = type('obj', (object,), {'nodes': ['EX1_BTC', 'EX1_USDT', 'EX2_USDT', 'EX2_BTC', 'EX1_BTC'], 'p_value': 0.005, 'get_path_info': lambda: "Mock Path Details"})()
-                self.logger.info("Mock opportunity found.")
+            self.logger.info("MockPathOptimizer: find_arbitrage() called.")
+            if time.time() % 20 < 10: # Simulate finding an opportunity periodically
+                self.path = type('obj', (object,), {
+                    'nodes': ['MOCKEX1_BTC', 'MOCKEX1_USDT', 'MOCKEX2_USDT', 'MOCKEX2_BTC', 'MOCKEX1_BTC'], 
+                    'p_value': 0.005, 
+                    'get_path_info': lambda: {"path_str": "BTC->USDT->USDT->BTC", "exchanges": ["mock1", "mock2"]}
+                })()
+                # Simulate AmtOptimizer part for last_opportunity
+                self.trade_solution = type('obj', (object,), {
+                    'estimated_profit_usd': 1.23,
+                    'get_solution_info': lambda: {"trades": [{"from": "BTC", "to": "USDT", "amount": 0.1}]}
+                })()
+                self.logger.info("MockPathOptimizer: Mock opportunity FOUND.")
             else:
                 self.path = None
-        def have_opportunity(self):
-            return self.path is not None
+                self.trade_solution = None
+                self.logger.info("MockPathOptimizer: No mock opportunity found this cycle.")
+        def have_opportunity(self): return self.path is not None
 
-    # Temporarily replace the actual PathOptimizer for this test run
     original_po_class = crypto.path_optimizer.PathOptimizer
     crypto.path_optimizer.PathOptimizer = MockPathOptimizer
-    print("--- crypto.path_optimizer.PathOptimizer replaced with MockPathOptimizer ---")
+    print("--- crypto.path_optimizer.PathOptimizer replaced with MockPathOptimizer for test ---")
 
     # Mock configurations
-    mock_ex_configs = {'mock_ex1': {}, 'mock_ex2': {}} # Dummy, as CCXT part is somewhat tested by ArbitrageRunner init
-    mock_cmc_key = "DUMMY_CMC_KEY"
+    mock_ex_configs = {'mockex1': {}, 'mockex2': {}}
+    mock_cmc_key = "DUMMY_CMC_KEY_MAIN"
     mock_fees = {"default": 0.002}
+    
+    # For DB testing in __main__, you'd need a valid URI and model path
+    # This requires models.py to be accessible.
+    # For simplicity, let's assume models.py is in 'app.models' relative to where this might run
+    # or adjust PYTHONPATH. For this specific edit, we focus on ArbitrageRunner structure.
+    # If running this script directly, `..arbitrage_manager` style import for models in `app` won't work.
+    # We'd need to ensure `arbitrage_web_app` is in PYTHONPATH.
+    
+    # TEST_DB_URI = 'sqlite:///./test_arbitrage_runner_db.sqlite'
+    # TEST_MODEL_PATH = 'arbitrage_web_app.app.models.ArbitrageRecord' # Adjust if needed
+    # print(f"Using TEST_DB_URI: {TEST_DB_URI} and Model Path: {TEST_MODEL_PATH}")
+
 
     print("\nInitializing ArbitrageRunner with mock configurations...")
     runner = ArbitrageRunner(
         exchange_configs=mock_ex_configs,
         cmc_api_key=mock_cmc_key,
         trading_fees_config=mock_fees,
-        path_length=4
+        default_path_length=4,
+        # database_uri=TEST_DB_URI, # Enable for DB test
+        # record_model_class_path=TEST_MODEL_PATH # Enable for DB test
     )
     
     status_info = runner.get_status()
-    print(f"Initial status: {status_info['status']}, Log: {status_info['log_file_path']}, History: {status_info['trade_history_file']}")
+    # print(f"Initial status: {status_info['status']}, Log: {status_info['log_file_path']}, History File (old): {status_info.get('trade_history_file', 'N/A - DB Used')}")
+    print(f"Initial status: {status_info['status']}, Log: {status_info['log_file_path']}")
     
     if status_info['status'] == 'error':
         print(f"Runner initialization failed: {status_info['error_message']}")

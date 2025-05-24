@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ title }} - Arbitrage Bot</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; background-color: #f4f7f6; color: #333; font-size: 14px; line-height: 1.6; }
+        .container { max-width: 900px; margin: 20px auto; padding: 15px; background-color: #fff; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        header { background-color: #00405c; color: white; padding: 15px 20px; border-radius: 8px 8px 0 0; text-align: center; }
+        header h1 { margin: 0; font-size: 1.8em; }
+        nav { background-color: #eef1f2; padding: 10px 0; text-align: center; border-bottom: 1px solid #d0d9de; margin-bottom: 20px; }
+        nav a { margin: 0 15px; text-decoration: none; color: #00405c; font-weight: bold; }
+        nav a:hover, nav a.active { text-decoration: underline; color: #007bff; }
+        
+        .content-section { margin-bottom: 30px; }
+        .content-section h2 { font-size: 1.5em; color: #00405c; margin-top: 0; border-bottom: 2px solid #eef1f2; padding-bottom: 10px; }
+        
+        .contract-info { background-color: #ffffff; padding: 15px; border-radius: 6px; box-shadow: 0 1px 5px rgba(0,0,0,0.07); margin-bottom: 15px; }
+        .contract-info h3 { font-size: 1.2em; color: #005073; margin-top: 0; }
+        .contract-info p { margin-bottom: 10px; }
+        .contract-info .address { font-family: monospace; background-color: #e9ecef; padding: 5px 8px; border-radius: 4px; display: inline-block; word-break: break-all; }
+        .contract-info .not-configured { color: #721c24; font-style: italic; }
+
+        .deployment-info { background-color: #f9f9f9; padding: 15px; border: 1px solid #e0e0e0; border-radius: 6px; }
+        .deployment-info h3 { color: #005073; }
+        .deployment-info ul { padding-left: 20px; }
+        .deployment-info code { background-color: #e9ecef; padding: 2px 4px; border-radius: 3px; }
+
+        .security-notice-page {
+            background-color: #fff3cd; 
+            color: #856404; 
+            padding: 15px;
+            margin-top: 20px;
+            border: 1px solid #ffeeba; 
+            border-radius: 4px;
+            font-size: 0.95em;
+        }
+        .security-notice-page strong { color: #664d03; }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>{{ title }}</h1>
+    </header>
+    <nav>
+        <a href="{{ url_for('dashboard_route') }}">Dashboard</a>
+        <a href="{{ url_for('configure_route') }}">Configure Bot</a>
+        <a href="{{ url_for('smart_contracts_info_route') }}" class="active">Smart Contracts Info</a>
+    </nav>
+
+    <div class="container">
+        <div class="content-section">
+            <h2>Deployed Smart Contract Addresses</h2>
+            <p>The following are the configured addresses for the smart contracts used by the DeFi functionalities of this bot. These addresses should be set as environment variables after the contracts have been deployed to the Polygon (or relevant test) network.</p>
+            {% if contracts %}
+                {% for contract in contracts %}
+                <div class="contract-info">
+                    <h3>{{ contract.name }}</h3>
+                    <p><strong>Description:</strong> {{ contract.description }}</p>
+                    <p>
+                        <strong>Configured Address:</strong> 
+                        {% if contract.address and contract.address != "Not configured" %}
+                            <span class="address">{{ contract.address }}</span>
+                        {% else %}
+                            <span class="not-configured">{{ contract.address }}</span>
+                        {% endif %}
+                    </p>
+                </div>
+                {% endfor %}
+            {% else %}
+                <p>No contract information available or passed to the template.</p>
+            {% endif %}
+        </div>
+
+        <div class="content-section deployment-info">
+            <h2>Deployment Script Information</h2>
+            {% if deployment_info %}
+                <p>The smart contracts are typically deployed using a script such as: <code>{{ deployment_info.script_name }}</code>.</p>
+                <h3>Recommendations & Requirements:</h3>
+                <ul>
+                    <li>{{ deployment_info.recommendation }}</li>
+                    <li>{{ deployment_info.requirements }}</li>
+                </ul>
+                <div class="security-notice-page">
+                    <strong>Caution:</strong> {{ deployment_info.caution }}
+                </div>
+            {% else %}
+                 <p>Deployment script information not available.</p>
+            {% endif %}
+        </div>
+
+        <div class="security-notice-page">
+            <strong>Overall Security Reminder:</strong>
+            Interacting with smart contracts and managing private keys carries significant risk. Always ensure you understand the contracts you are interacting with and follow best practices for key management. Using dedicated, low-fund wallets for bot operations is strongly advised.
+        </div>
+    </div>
+</body>
+</html>
+```

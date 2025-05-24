@@ -17,6 +17,16 @@ class AppConfigForm(FlaskForm):
     """Main form for application configurations."""
     cmc_api_key = StringField('CoinMarketCap API Key', validators=[Optional()])
     
+    # DeFi Specific Configurations
+    polygon_rpc_url = StringField('Polygon RPC URL (e.g., Infura, Alchemy)', validators=[Optional()])
+    biconomy_api_key = StringField('Biconomy API Key (for gasless transactions, if used)', validators=[Optional()])
+    private_key = PasswordField('Wallet Private Key (for DeFi operations - HIGHLY SENSITIVE)', validators=[Optional()])
+    polygonscan_api_key = StringField('PolygonScan API Key (for transaction monitoring/explorer data)', validators=[Optional()])
+
+    # Smart Contract Addresses (Optional, as they depend on deployment)
+    flash_loan_contract_address = StringField('Flash Loan Contract Address (on Polygon)', validators=[Optional()])
+    gasless_contract_address = StringField('Gasless (Meta) Transaction Contract Address (on Polygon)', validators=[Optional()])
+
     # Trading fees configuration - using TextAreaField for JSON input for simplicity
     # A more complex setup might use FieldList of FormFields for individual fee entries.
     trading_fees_json = TextAreaField('Trading Fees (JSON format, e.g., {"binance": 0.001, "default": 0.002})', 

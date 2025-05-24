@@ -71,7 +71,7 @@
     <div class="container">
         <div class="grid-container">
             <div class="grid-item status-controls-section">
-                <h2>Bot Status & Controls</h2>
+                <h2>CEX Bot Status & Controls</h2>
                 <p><strong>Status:</strong> <span id="botStatus" class="status-value">Loading...</span></p>
                 <p><strong>Process ID (PID):</strong> <span id="botPid" class="status-value">N/A</span></p>
                 <p><strong>Error:</strong> <span id="botError" class="error-message">None</span></p>
@@ -135,16 +135,33 @@
             </div>
 
             <div class="grid-item latest-opportunity-section">
-                <h2>Latest Opportunity</h2>
+                <h2>Latest CEX Opportunity</h2>
                 <div id="latestOpportunity">
                     <p>No opportunity data yet. Refresh or wait for bot to find one.</p>
                 </div>
+            </div>
+
+            <div class="grid-item defi-operations-section">
+                <h2>DeFi Operations</h2>
+                <div class="controls">
+                    <button id="executeFlashLoanBtn" onclick="executeFlashLoan()" {% if not defi_ready %}disabled title="{{ defi_message }}"{% endif %}>
+                        Execute Flash Loan Arbitrage
+                    </button>
+                    <button id="executeGaslessBtn" onclick="executeGasless()" {% if not defi_ready %}disabled title="{{ defi_message }}"{% endif %}>
+                        Execute Gasless Arbitrage
+                    </button>
+                    {% if not defi_ready %}
+                        <p class="error-message" style="font-size:0.9em; margin-top:10px;">{{ defi_message }}</p>
+                    {% endif %}
+                </div>
+                <h3>DeFi Operation Result:</h3>
+                <pre id="defiResultOutput">No DeFi operation results yet.</pre>
             </div>
         </div>
 
         <div class="grid-container">
             <div class="grid-item logs-section">
-                <h2>Operational Logs (<span id="logFilePath">N/A</span>)</h2>
+                <h2>CEX Bot Operational Logs (<span id="logFilePath">N/A</span>)</h2>
                 <button onclick="fetchLogs()">Refresh Logs</button>
                 <pre id="logsOutput">Loading logs...</pre>
             </div>
@@ -329,7 +346,7 @@
                 // Send empty object if no specific overrides, so backend uses defaults.
                 // Or, send only parameters that have values.
                 // The current ArbitrageRunner.set_optimizer_parameters resets to default then applies overrides.
-                const payload = Object.keys(params).length > 0 ? params : {};
+            const payload = Object.keys(params).length > 0 ? params : {}; // Send empty if no overrides
                 const data = await apiCall('/start_arbitrage', 'POST', payload);
                 alert(data.message || data.error || 'Request sent.');
                 fetchStatus(); 
@@ -345,6 +362,40 @@
                 fetchStatus(); 
             } catch (error) {
                 alert(`Error stopping bot: ${error.message}`);
+            }
+        }
+
+        async function executeFlashLoan() {
+            const resultOutput = document.getElementById('defiResultOutput');
+            resultOutput.textContent = 'Executing Flash Loan Arbitrage... Please wait.';
+            try {
+                // Pass current CEX opportunity data if available, or let backend decide
+                const statusData = await apiCall('/arbitrage_status'); // Fetch fresh status
+                const opportunityPayload = statusData.last_opportunity ? { opportunity_data: statusData.last_opportunity } : {};
+                
+                // The API endpoint expects POST, but if no specific payload for the operation itself (besides opportunity)
+                // an empty object or specific instruction might be needed if the endpoint expects a body.
+                // For now, assuming the endpoint can handle an empty body or that opportunity_data is the body.
+                // If the endpoint expects opportunity_data in the body: apiCall('/execute_flash_loan', 'POST', opportunityPayload)
+                // If no specific body for this action:
+                const data = await apiCall('/execute_flash_loan', 'POST', {}); // Sending empty JSON body for POST
+                resultOutput.textContent = JSON.stringify(data, null, 2);
+            } catch (error) {
+                resultOutput.textContent = `Error executing flash loan: ${error.message}\n\n${error.stack || ''}`;
+            }
+        }
+
+        async function executeGasless() {
+            const resultOutput = document.getElementById('defiResultOutput');
+            resultOutput.textContent = 'Executing Gasless Arbitrage Transaction... Please wait.';
+            try {
+                const statusData = await apiCall('/arbitrage_status');
+                const opportunityPayload = statusData.last_opportunity ? { opportunity_data: statusData.last_opportunity } : {};
+
+                const data = await apiCall('/execute_gasless_transaction', 'POST', {}); // Sending empty JSON body for POST
+                resultOutput.textContent = JSON.stringify(data, null, 2);
+            } catch (error) {
+                resultOutput.textContent = `Error executing gasless transaction: ${error.message}\n\n${error.stack || ''}`;
             }
         }
 

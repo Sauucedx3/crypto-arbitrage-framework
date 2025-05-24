@@ -62,6 +62,21 @@
         .flash-messages .success { background-color: #d4edda; border-color: #c3e6cb; color: #155724; }
         .flash-messages .danger { background-color: #f8d7da; border-color: #f5c6cb; color: #721c24; }
         .flash-messages .info { background-color: #d1ecf1; border-color: #bee5eb; color: #0c5460; }
+        .flash-messages .warning { background-color: #fff3cd; border-color: #ffeeba; color: #856404; }
+
+
+        .security-warning {
+            background-color: #fff3cd; /* Light yellow */
+            color: #856404; /* Dark yellow/brown text */
+            padding: 15px;
+            margin-top: 10px;
+            margin-bottom: 15px;
+            border: 1px solid #ffeeba; /* Light yellow border */
+            border-radius: 4px;
+            font-size: 0.9em;
+        }
+        .security-warning strong { color: #664d03; } /* Darker yellow for strong text */
+
 
         /* Submit button */
         input[type="submit"] {
@@ -115,9 +130,56 @@
                     <small>Enter as a JSON object, e.g., <code>{"binance": 0.001, "kraken": 0.0016, "default": 0.002}</code></small>
                 </div>
             </fieldset>
+
+            <fieldset>
+                <legend><h2>DeFi Settings (Optional)</h2></legend>
+                <p><small>These settings are required only if you intend to use DeFi features involving on-chain transactions (e.g., with Polygon).</small></p>
+                
+                <div class="form-field">
+                    {{ form.polygon_rpc_url.label }}
+                    {{ form.polygon_rpc_url(size=60, placeholder="E.g., https://polygon-mainnet.infura.io/v3/YOUR_INFURA_PROJECT_ID") }}
+                    {% if form.polygon_rpc_url.errors %}
+                        <ul class="form-errors">{% for error in form.polygon_rpc_url.errors %}<li>{{ error }}</li>{% endfor %}</ul>
+                    {% endif %}
+                </div>
+
+                <div class="form-field">
+                    {{ form.biconomy_api_key.label }}
+                    {{ form.biconomy_api_key(size=60) }}
+                    {% if form.biconomy_api_key.errors %}
+                        <ul class="form-errors">{% for error in form.biconomy_api_key.errors %}<li>{{ error }}</li>{% endfor %}</ul>
+                    {% endif %}
+                </div>
+                
+                <div class="form-field">
+                    <div class="security-warning">
+                        <strong>SECURITY WARNING:</strong> The Private Key is extremely sensitive. 
+                        Anyone with access to it can control your funds. 
+                        <ul>
+                            <li>For this bot, it is <strong>strongly recommended</strong> to use a dedicated, new wallet with limited funds.</li>
+                            <li>This form helps you generate the environment variable setup. Ensure the <code>PRIVATE_KEY</code> environment variable is stored securely on your server.</li>
+                            <li><strong>NEVER</strong> hardcode your private key directly into code or commit it to version control.</li>
+                            <li>The key entered here is only used to generate the `export` command below and is not stored by this web application beyond that.</li>
+                        </ul>
+                    </div>
+                    {{ form.private_key.label }}
+                    {{ form.private_key(size=60, placeholder="Enter private key starting with 0x...") }}
+                    {% if form.private_key.errors %}
+                        <ul class="form-errors">{% for error in form.private_key.errors %}<li>{{ error }}</li>{% endfor %}</ul>
+                    {% endif %}
+                </div>
+
+                <div class="form-field">
+                    {{ form.polygonscan_api_key.label }}
+                    {{ form.polygonscan_api_key(size=60) }}
+                    {% if form.polygonscan_api_key.errors %}
+                        <ul class="form-errors">{% for error in form.polygonscan_api_key.errors %}<li>{{ error }}</li>{% endfor %}</ul>
+                    {% endif %}
+                </div>
+            </fieldset>
             
             <fieldset>
-                <legend><h2>Exchange Configurations</h2></legend>
+                <legend><h2>Exchange Configurations (CEX)</h2></legend>
                 <div id="exchange-list">
                     {% for exchange_subform_field in form.exchanges %}
                         <div class="exchange-entry">
