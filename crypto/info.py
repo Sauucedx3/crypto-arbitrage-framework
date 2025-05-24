@@ -26,17 +26,54 @@ fiat = {
     'ZAR',
     'CNY',
 }
-trading_fee = {
-    'binance': 0.00075,
-    'kraken': 0.0026,
-    'bitfinex': 0.002,
-    'kucoin': 0.001,
-    'bittrex': 0.0025,
-}
+
+# --- Configuration Note ---
+# The 'trading_fee' dictionary and any API keys (e.g., CMC_API_KEY) previously in this file
+# are now managed externally and passed as parameters to the relevant classes/functions.
+#
+# - Trading Fees: Expected to be provided as 'trading_fees_config' to ArbitrageRunner,
+#   which then passes it to PathOptimizer. In the web app, this is loaded
+#   from the TRADING_FEES_CONFIG environment variable (a JSON string).
+#
+# - CMC_API_KEY: Expected to be provided as 'cmc_api_key' to ArbitrageRunner,
+#   which passes it to PathOptimizer, which in turn passes it to utils.get_crypto_prices.
+#   In the web app, this is loaded from the CMC_API_KEY environment variable.
+#
+# - Exchange API Keys: Expected to be provided within 'exchange_configs' to ArbitrageRunner,
+#   where CCXT instances are dynamically created. In the web app, this is
+#   loaded from the EXCHANGE_CONFIGS environment variable (a JSON string).
+#
+# The example 'trading_fee' dictionary below is commented out to prevent accidental use
+# and to emphasize that the configuration should come from external sources.
+# It can serve as a reference for the expected structure if needed.
+
+# trading_fee = {
+#     'binance': 0.00075,
+#     'kraken': 0.0026,
+#     'bitfinex': 0.002,
+#     'kucoin': 0.001,
+#     'bittrex': 0.0025,
+#     # A 'default' key can also be included in the externally configured dictionary, e.g.:
+#     # 'default': 0.002 
+# }
+
 # tokens to be considered, too many small coins will lead to inefficient trading
+# This list is more of a system-level filter for assets of interest.
+# While it could be externalized, it's not a secret or user-specific credential.
+# For now, it remains as general system information.
 tokens = {
     'ABT',
     'ABY',
+    'bitfinex': 0.002,
+    'kucoin': 0.001,
+    'ZRX'
+}
+
+# Other constants like precision_info, min_trading_usd, etc., if they existed,
+# would be reviewed here. For now, only fiat and tokens (as general info) remain.
+# Example of other potential info that might be here (and might or might not need externalizing):
+# precision_info = { 'BTC': 8, 'ETH': 8, 'USD': 2 }
+# min_trading_usd = 10
     'ABYSS',
     'ACAT',
     'ACT',

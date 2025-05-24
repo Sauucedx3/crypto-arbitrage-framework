@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ title }} - Arbitrage Bot</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background-color: #f4f4f4; color: #333; line-height: 1.6; }
+        .container { max-width: 800px; margin: auto; background-color: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        h1, h2 { color: #0056b3; text-align: center; }
+        h2 { margin-top: 30px; }
+        nav { text-align: center; margin-bottom: 20px; }
+        nav a { margin: 0 10px; text-decoration: none; color: #007bff; }
+        nav a:hover { text-decoration: underline; }
+
+        /* Form styling */
+        form { margin-top: 20px; }
+        .form-field { margin-bottom: 15px; }
+        .form-field label { display: block; margin-bottom: 5px; font-weight: bold; }
+        .form-field input[type="text"],
+        .form-field input[type="password"],
+        .form-field textarea {
+            width: calc(100% - 24px); /* Account for padding and border */
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-sizing: border-box; /* Important for width calculation */
+        }
+        .form-field textarea { min-height: 100px; font-family: monospace; font-size: 13px; }
+        .form-errors { color: #dc3545; list-style-type: none; padding-left: 0; font-size: 0.9em; }
+        .form-errors li { margin-bottom: 5px; }
+
+        /* Exchange entry styling */
+        .exchange-entry { border: 1px solid #ddd; padding: 15px; margin-bottom:15px; border-radius: 4px; background-color: #f9f9f9; }
+        .exchange-entry h3 { margin-top: 0; color: #0056b3; font-size: 1.2em; }
+        
+        /* FieldList controls - basic styling for add button if we were to implement it fully with JS */
+        .field-list-controls { margin-top: 10px; }
+        .field-list-controls button {
+            font-size: 0.9em; padding: 8px 12px; background-color: #28a745; color: white; 
+            border: none; border-radius: 4px; cursor: pointer;
+        }
+        .field-list-controls button:hover { background-color: #218838; }
+
+        /* Output sections */
+        .output-section { margin-top: 30px; }
+        .output-section h3 { color: #0056b3; }
+        .output-section pre {
+            background-color: #e9ecef; padding: 15px; border-radius: 5px;
+            white-space: pre-wrap; word-wrap: break-word; font-size: 0.95em;
+            border: 1px solid #ced4da;
+        }
+
+        /* Flash messages */
+        .flash-messages { list-style-type: none; padding: 0; margin-bottom: 20px; }
+        .flash-messages li {
+            padding: 10px 15px;
+            margin-bottom: 10px;
+            border-radius: 4px;
+            border: 1px solid transparent;
+        }
+        .flash-messages .success { background-color: #d4edda; border-color: #c3e6cb; color: #155724; }
+        .flash-messages .danger { background-color: #f8d7da; border-color: #f5c6cb; color: #721c24; }
+        .flash-messages .info { background-color: #d1ecf1; border-color: #bee5eb; color: #0c5460; }
+
+        /* Submit button */
+        input[type="submit"] {
+            display: block; width: 100%; padding: 12px; margin-top: 20px;
+            background-color: #007bff; color: white; font-size: 1em;
+            border: none; border-radius: 4px; cursor: pointer;
+        }
+        input[type="submit"]:hover { background-color: #0056b3; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>{{ title }}</h1>
+
+        <nav>
+            <a href="{{ url_for('dashboard') }}">Dashboard</a>
+            <a href="{{ url_for('configure_route') }}">Configure</a>
+        </nav>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                <ul class="flash-messages">
+                {% for category, message in messages %}
+                    <li class="{{ category }}">{{ message }}</li>
+                {% endfor %}
+                </ul>
+            {% endif %}
+        {% endwith %}
+
+        <form method="POST" action="{{ url_for('configure_route') }}" novalidate>
+            {{ form.hidden_tag() }} {# CSRF token #}
+
+            <fieldset>
+                <legend><h2>Global Settings</h2></legend>
+                <div class="form-field">
+                    {{ form.cmc_api_key.label }}
+                    {{ form.cmc_api_key(size=60) }}
+                    {% if form.cmc_api_key.errors %}
+                        <ul class="form-errors">{% for error in form.cmc_api_key.errors %}<li>{{ error }}</li>{% endfor %}</ul>
+                    {% endif %}
+                </div>
+
+                <div class="form-field">
+                    {{ form.trading_fees_json.label }}
+                    {{ form.trading_fees_json() }}
+                    {% if form.trading_fees_json.errors %}
+                        <ul class="form-errors">{% for error in form.trading_fees_json.errors %}<li>{{ error }}</li>{% endfor %}</ul>
+                    {% elif json_errors and 'trading_fees_json' in json_errors %}
+                         <ul class="form-errors"><li>{{ json_errors['trading_fees_json'] }}</li></ul>
+                    {% endif %}
+                    <small>Enter as a JSON object, e.g., <code>{"binance": 0.001, "kraken": 0.0016, "default": 0.002}</code></small>
+                </div>
+            </fieldset>
+            
+            <fieldset>
+                <legend><h2>Exchange Configurations</h2></legend>
+                <div id="exchange-list">
+                    {% for exchange_subform_field in form.exchanges %}
+                        <div class="exchange-entry">
+                            <h3>Exchange Entry {{ loop.index }}</h3>
+                            {{ exchange_subform_field.hidden_tag() }} {# For CSRF on subforms if needed by extensions, though often not necessary for FieldList #}
+                            <div class="form-field">
+                                {{ exchange_subform_field.exchange_name.label }}
+                                {{ exchange_subform_field.exchange_name(size=30) }}
+                                {% if exchange_subform_field.exchange_name.errors %}
+                                    <ul class="form-errors">{% for error in exchange_subform_field.exchange_name.errors %}<li>{{ error }}</li>{% endfor %}</ul>
+                                {% endif %}
+                            </div>
+                            <div class="form-field">
+                                {{ exchange_subform_field.apiKey.label }}
+                                {{ exchange_subform_field.apiKey(size=60) }}
+                                {% if exchange_subform_field.apiKey.errors %}
+                                    <ul class="form-errors">{% for error in exchange_subform_field.apiKey.errors %}<li>{{ error }}</li>{% endfor %}</ul>
+                                {% endif %}
+                            </div>
+                            <div class="form-field">
+                                {{ exchange_subform_field.secret.label }}
+                                {{ exchange_subform_field.secret(size=60) }}
+                                {% if exchange_subform_field.secret.errors %}
+                                    <ul class="form-errors">{% for error in exchange_subform_field.secret.errors %}<li>{{ error }}</li>{% endfor %}</ul>
+                                {% endif %}
+                            </div>
+                            <div class="form-field">
+                                {{ exchange_subform_field.password.label }}
+                                {{ exchange_subform_field.password(size=60) }}
+                                {% if exchange_subform_field.password.errors %}
+                                    <ul class="form-errors">{% for error in exchange_subform_field.password.errors %}<li>{{ error }}</li>{% endfor %}</ul>
+                                {% endif %}
+                            </div>
+                            <div class="form-field">
+                                {{ exchange_subform_field.other_params_json.label }}
+                                {{ exchange_subform_field.other_params_json() }}
+                                {% if exchange_subform_field.other_params_json.errors %}
+                                    <ul class="form-errors">{% for error in exchange_subform_field.other_params_json.errors %}<li>{{ error }}</li>{% endfor %}</ul>
+                                {% elif json_errors and 'exchanges-' + loop.index0|string + '-other_params_json' in json_errors %}
+                                     <ul class="form-errors"><li>{{ json_errors['exchanges-' + loop.index0|string + '-other_params_json'] }}</li></ul>
+                                {% endif %}
+                                <small>Optional. E.g., <code>{"options": {"adjustForTimeDifference": true}, "verbose": false}</code></small>
+                            </div>
+                        </div>
+                    {% endfor %}
+                </div>
+                <div class="field-list-controls">
+                     {# Basic add button - full functionality requires JavaScript #}
+                     {# To make this work, you'd typically have a JS function that clones an empty exchange entry template #}
+                    <button type="button" onclick="addExchangeEntry()">Add Another Exchange</button>
+                    <small>(Note: For full "Add Another Exchange" functionality, JavaScript is typically required. This button is a placeholder.)</small>
+                </div>
+            </fieldset>
+
+            {{ form.submit() }}
+        </form>
+
+        {% if env_vars_output %}
+            <div class="output-section">
+                <h3>Generated Environment Variables:</h3>
+                <p>Copy and paste these into your shell, or add to your <code>.bashrc</code> / <code>.zshrc</code>, or CI/CD environment settings:</p>
+                <pre>{{ env_vars_output }}</pre>
+            </div>
+        {% endif %}
+
+        {% if yaml_output %}
+            <div class="output-section">
+                <h3>Conceptual Configuration File Snippet (YAML format):</h3>
+                <p>This is how the data might look in a configuration file (e.g., <code>config.yaml</code>). The application currently expects these via environment variables as shown above.</p>
+                <pre>{{ yaml_output }}</pre>
+            </div>
+        {% endif %}
+    </div>
+
+    <script>
+        // Basic placeholder for adding exchange entries.
+        // A robust implementation would clone a template of the exchange subform fields.
+        // WTForms FieldList usually handles re-rendering based on submitted data if `append_entry` is called server-side before rendering.
+        // This client-side function is for enhancing UX by adding fields before submission.
+        function addExchangeEntry() {
+            // This is a simplified approach. A real implementation would need to handle WTForms naming conventions (e.g., exchanges-0-apiKey, exchanges-1-apiKey)
+            // and potentially use a hidden template field to clone.
+            // For now, this is a placeholder to illustrate where JS would go.
+            alert("To dynamically add more exchange fields before submitting, JavaScript is needed to clone the form fields correctly. The form currently supports min_entries=1, and more can be processed if submitted (e.g. by manually editing HTML or if backend logic appends more entries based on some condition before re-rendering).");
+            
+            // Example of how one might try to add (but this is naive without proper templating/naming):
+            // const list = document.getElementById('exchange-list');
+            // const newEntry = document.createElement('div');
+            // newEntry.className = 'exchange-entry';
+            // newEntry.innerHTML = '<h3>New Exchange (Manual Name Update Needed)</h3>' + 
+            //                      '<p>Simplified: Add fields here with correct names like exchanges-N-fieldName</p>';
+            // list.appendChild(newEntry);
+        }
+    </script>
+
+</body>
+</html>
+```

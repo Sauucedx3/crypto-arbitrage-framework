@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ title }} - Arbitrage Bot</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; background-color: #f4f7f6; color: #333; font-size: 14px; }
+        .container { max-width: 1200px; margin: 20px auto; padding: 15px; background-color: #fff; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        header { background-color: #00405c; color: white; padding: 15px 20px; border-radius: 8px 8px 0 0; }
+        header h1 { margin: 0; font-size: 1.8em; }
+        nav { background-color: #eef1f2; padding: 10px 0; text-align: center; border-bottom: 1px solid #d0d9de; }
+        nav a { margin: 0 15px; text-decoration: none; color: #00405c; font-weight: bold; }
+        nav a:hover, nav a.active { text-decoration: underline; color: #007bff; }
+        
+        .grid-container { display: grid; grid-template-columns: repeat(auto-fit, minmax(450px, 1fr)); gap: 20px; margin-top: 20px; }
+        .grid-item { background-color: #ffffff; padding: 15px; border-radius: 6px; box-shadow: 0 1px 5px rgba(0,0,0,0.07); }
+        .grid-item h2 { font-size: 1.3em; color: #00405c; margin-top: 0; border-bottom: 2px solid #eef1f2; padding-bottom: 8px; }
+        
+        .status-value { font-weight: bold; }
+        .status-idle { color: #6c757d; }
+        .status-running { color: #28a745; }
+        .status-starting, .status-stopping { color: #ffc107; }
+        .status-stopped { color: #fd7e14; }
+        .status-error { color: #dc3545; font-weight: bold; }
+
+        .controls button, .optimizer-form button { background-color: #007bff; color: white; border: none; padding: 10px 15px; margin: 5px; border-radius: 4px; cursor: pointer; font-size: 0.95em; }
+        .controls button:hover, .optimizer-form button:hover { background-color: #0056b3; }
+        .controls button.stop-btn { background-color: #dc3545; }
+        .controls button.stop-btn:hover { background-color: #c82333; }
+        
+        pre { background-color: #e9ecef; padding: 10px; border-radius: 4px; white-space: pre-wrap; word-wrap: break-word; font-size: 0.85em; max-height: 300px; overflow-y: auto; border: 1px solid #ced4da;}
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 0.9em; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #e9ecef; color: #00405c; }
+        td { word-break: break-all; }
+
+        .error-message { color: #dc3545; font-weight: bold; white-space: pre-wrap;}
+        .timestamp { font-size: 0.8em; color: #6c757d; }
+        .log-entry, .history-entry { margin-bottom: 5px; padding-bottom: 5px; border-bottom: 1px dotted #eee; }
+        .log-entry:last-child, .history-entry:last-child { border-bottom: none; }
+        .opportunity-details { font-family: monospace; font-size: 0.9em; }
+
+        .form-section { margin-top:15px; padding-top:15px; border-top: 1px solid #eee; }
+        .form-section h3 { margin-top:0; font-size:1.1em; color: #005073; }
+        .form-row { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 10px; }
+        .form-group { flex: 1; min-width: 200px; }
+        .form-group label { display: block; margin-bottom: 4px; font-weight: normal; font-size:0.9em; }
+        .form-group input[type="text"], .form-group input[type="number"], .form-group textarea {
+            width: calc(100% - 20px); padding: 8px; border: 1px solid #ccc; border-radius: 3px; box-sizing: border-box; font-size:0.95em;
+        }
+        .form-group textarea { min-height: 60px; font-family: monospace; }
+        .form-group input[type="checkbox"] { margin-right: 5px; }
+        .form-group-checkbox { display: flex; align-items: center; flex-basis: 100%; }
+        .form-group-checkbox label { margin-bottom: 0; }
+        .toggle-button { background-color: #6c757d; margin-bottom:10px; }
+        .toggle-button:hover { background-color: #5a6268; }
+        #optimizerParamsForm { display: none; /* Hidden by default */ }
+
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Arbitrage Bot Dashboard</h1>
+    </header>
+    <nav>
+        <a href="{{ url_for('dashboard_route') }}" class="active">Dashboard</a>
+        <a href="{{ url_for('configure_route') }}">Set Global Defaults</a>
+    </nav>
+
+    <div class="container">
+        <div class="grid-container">
+            <div class="grid-item status-controls-section">
+                <h2>Bot Status & Controls</h2>
+                <p><strong>Status:</strong> <span id="botStatus" class="status-value">Loading...</span></p>
+                <p><strong>Process ID (PID):</strong> <span id="botPid" class="status-value">N/A</span></p>
+                <p><strong>Error:</strong> <span id="botError" class="error-message">None</span></p>
+                <div class="controls">
+                    <button onclick="startBot()">Start Bot (with Overrides)</button>
+                    <button class="stop-btn" onclick="stopBot()">Stop Bot</button>
+                    <button onclick="fetchStatus()">Refresh Status</button>
+                </div>
+
+                <div class="form-section">
+                    <button class="toggle-button" onclick="toggleOptimizerForm()">Show/Hide Run Parameter Overrides</button>
+                    <form id="optimizerParamsForm" class="optimizer-form">
+                        <h3>Run Configuration Overrides (Empty uses default)</h3>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="path_length">Path Length:</label>
+                                <input type="number" id="path_length" name="path_length" placeholder="e.g., 6">
+                            </div>
+                            <div class="form-group">
+                                <label for="orderbook_n">Orderbook N:</label>
+                                <input type="number" id="orderbook_n" name="orderbook_n" placeholder="e.g., 20">
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="interex_trading_size">Inter-Ex Trading Size (USD):</label>
+                                <input type="number" id="interex_trading_size" name="interex_trading_size" step="0.01" placeholder="e.g., 2000">
+                            </div>
+                            <div class="form-group">
+                                <label for="min_trading_limit">Min Trading Limit (USD):</label>
+                                <input type="number" id="min_trading_limit" name="min_trading_limit" step="0.01" placeholder="e.g., 10">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="simulated_bal_json">Simulated Balances (JSON string):</label>
+                            <textarea id="simulated_bal_json" name="simulated_bal_json" placeholder='e.g., {"exchange_id": {"USD": 1000, "BTC": 0.1}}'></textarea>
+                        </div>
+                        <div class="form-row">
+                             <div class="form-group form-group-checkbox">
+                                <input type="checkbox" id="include_fiat" name="include_fiat">
+                                <label for="include_fiat">Include Fiat in Paths</label>
+                            </div>
+                             <div class="form-group form-group-checkbox">
+                                <input type="checkbox" id="inter_exchange_trading" name="inter_exchange_trading" checked>
+                                <label for="inter_exchange_trading">Allow Inter-Exchange Trading</label>
+                            </div>
+                        </div>
+                         <div class="form-row">
+                            <div class="form-group form-group-checkbox">
+                                <input type="checkbox" id="consider_init_bal" name="consider_init_bal" checked>
+                                <label for="consider_init_bal">Consider Initial Balances (PathOptimizer)</label>
+                            </div>
+                            <div class="form-group form-group-checkbox">
+                                <input type="checkbox" id="consider_inter_exc_bal" name="consider_inter_exc_bal" checked>
+                                <label for="consider_inter_exc_bal">Consider Inter-Exchange Balances (PathOptimizer)</label>
+                            </div>
+                        </div>
+                        <p style="font-size:0.8em; color:#555;">Note: Values left blank will use the application's current defaults for that run. Check logs for applied parameters.</p>
+                    </form>
+                </div>
+            </div>
+
+            <div class="grid-item latest-opportunity-section">
+                <h2>Latest Opportunity</h2>
+                <div id="latestOpportunity">
+                    <p>No opportunity data yet. Refresh or wait for bot to find one.</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="grid-container">
+            <div class="grid-item logs-section">
+                <h2>Operational Logs (<span id="logFilePath">N/A</span>)</h2>
+                <button onclick="fetchLogs()">Refresh Logs</button>
+                <pre id="logsOutput">Loading logs...</pre>
+            </div>
+
+            <div class="grid-item history-section">
+                <h2>Trade/Opportunity History (<span id="historyFilePath">N/A</span>)</h2>
+                <button onclick="fetchHistory()">Refresh History</button>
+                <div style="max-height: 400px; overflow-y: auto;">
+                    <table id="tradeHistoryTable">
+                        <thead>
+                            <tr>
+                                <th>Timestamp (UTC)</th>
+                                <th>Status</th>
+                                <th>Path</th>
+                                <th>Profit (USD)</th>
+                                <th>Details</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tradeHistoryBody">
+                            <tr><td colspan="5">Loading history...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function toggleOptimizerForm() {
+            const form = document.getElementById('optimizerParamsForm');
+            form.style.display = form.style.display === 'none' ? 'block' : 'none';
+        }
+
+        function getNested(obj, ...args) {
+            return args.reduce((obj, level) => obj && obj[level], obj);
+        }
+
+        async function apiCall(url, method = 'GET', body = null) {
+            try {
+                const options = { method };
+                if (body) {
+                    options.headers = { 'Content-Type': 'application/json' };
+                    options.body = JSON.stringify(body);
+                }
+                const response = await fetch(url, options);
+                if (!response.ok) {
+                    let errorText = `HTTP error ${response.status}`;
+                    try {
+                        const errorData = await response.json();
+                        errorText += `: ${errorData.error || response.statusText}`;
+                    } catch (e) { /* no json body */ }
+                    throw new Error(errorText);
+                }
+                return await response.json();
+            } catch (error) {
+                console.error(`API call to ${url} failed:`, error);
+                throw error; 
+            }
+        }
+
+        function updateStatusDisplay(data) {
+            const statusEl = document.getElementById('botStatus');
+            const pidEl = document.getElementById('botPid');
+            const errorEl = document.getElementById('botError');
+            const logFilePathEl = document.getElementById('logFilePath');
+            const historyFilePathEl = document.getElementById('historyFilePath');
+
+            statusEl.textContent = data.status || 'N/A';
+            statusEl.className = 'status-value status-' + (data.status || 'idle').toLowerCase().replace(/_/g, '-');
+            pidEl.textContent = data.pid || 'N/A';
+            errorEl.textContent = data.error_message || 'None';
+            if (data.error_message) errorEl.classList.add('error-message'); else errorEl.classList.remove('error-message');
+            
+            logFilePathEl.textContent = data.log_file_path || 'N/A';
+            historyFilePathEl.textContent = data.trade_history_file || 'N/A';
+
+            const oppSection = document.getElementById('latestOpportunity');
+            if (data.last_opportunity) {
+                const opp = data.last_opportunity;
+                let detailsHtml = `<p class="timestamp"><strong>Timestamp:</strong> ${new Date(opp.timestamp_iso).toLocaleString()}</p>`;
+                detailsHtml += `<p><strong>Path:</strong> ${getNested(opp, 'path_nodes') ? opp.path_nodes.join(' -> ') : 'N/A'}</p>`;
+                detailsHtml += `<p><strong>P-Value:</strong> ${opp.p_value !== null && opp.p_value !== undefined ? opp.p_value.toFixed(5) : 'N/A'}</p>`;
+                detailsHtml += `<p><strong>Est. Profit (USD):</strong> ${opp.estimated_profit_usd !== null && opp.estimated_profit_usd !== undefined ? opp.estimated_profit_usd.toFixed(2) : 'N/A'}</p>`;
+                if (opp.path_details) {
+                     detailsHtml += `<h4>Path Details:</h4><pre class="opportunity-details">${JSON.stringify(opp.path_details, null, 2)}</pre>`;
+                }
+                if (opp.solution_details) {
+                    detailsHtml += `<h4>Solution Details:</h4><pre class="opportunity-details">${JSON.stringify(opp.solution_details, null, 2)}</pre>`;
+                }
+                oppSection.innerHTML = detailsHtml;
+            } else {
+                oppSection.innerHTML = '<p>No recent opportunity data.</p>';
+            }
+        }
+
+        async function fetchStatus() {
+            try {
+                const data = await apiCall('/arbitrage_status');
+                updateStatusDisplay(data);
+            } catch (error) {
+                document.getElementById('botStatus').textContent = 'Error loading status';
+                document.getElementById('botError').textContent = error.message;
+            }
+        }
+
+        async function fetchLogs() {
+            const logsOutput = document.getElementById('logsOutput');
+            try {
+                const data = await apiCall('/arbitrage_logs?lines=100'); 
+                if (data.error) {
+                    logsOutput.textContent = `Error: ${data.error}`;
+                } else {
+                    logsOutput.textContent = data.logs.join('\n') || 'No log entries.';
+                }
+            } catch (error) {
+                logsOutput.textContent = `Failed to fetch logs: ${error.message}`;
+            }
+        }
+
+        async function fetchHistory() {
+            const historyBody = document.getElementById('tradeHistoryBody');
+            try {
+                const data = await apiCall('/trade_history?entries=50'); 
+                if (data.error) {
+                    historyBody.innerHTML = `<tr><td colspan="5">Error: ${data.error}</td></tr>`;
+                } else if (data.history && data.history.length > 0) {
+                    let rowsHtml = '';
+                    data.history.slice().reverse().forEach(entry => { // Slice to avoid mutating original if it's a shared ref
+                        const oppDetails = entry.opportunity_details || {};
+                        const pathNodes = getNested(oppDetails, 'path_nodes') || [];
+                        const estProfit = getNested(oppDetails, 'estimated_profit_usd');
+                        
+                        rowsHtml += `
+                            <tr>
+                                <td class="timestamp">${new Date(entry.timestamp_iso).toLocaleString()}</td>
+                                <td>${entry.status_after_processing || 'N/A'}</td>
+                                <td>${pathNodes.join(' -> ') || 'N/A'}</td>
+                                <td>${estProfit !== null && estProfit !== undefined ? estProfit.toFixed(2) : 'N/A'}</td>
+                                <td><pre class="opportunity-details" style="max-height:100px; font-size:0.8em;">${JSON.stringify(oppDetails, null, 1)}</pre></td>
+                            </tr>
+                        `;
+                    });
+                    historyBody.innerHTML = rowsHtml;
+                } else {
+                    historyBody.innerHTML = '<tr><td colspan="5">No trade history entries found.</td></tr>';
+                }
+            } catch (error) {
+                historyBody.innerHTML = `<tr><td colspan="5">Failed to fetch history: ${error.message}</td></tr>`;
+            }
+        }
+
+        async function startBot() {
+            const params = {};
+            // Numerical values - only add if non-empty to use defaults otherwise
+            const pathLength = document.getElementById('path_length').value;
+            if (pathLength) params.path_length = parseInt(pathLength, 10);
+
+            const interexSize = document.getElementById('interex_trading_size').value;
+            if (interexSize) params.interex_trading_size = parseFloat(interexSize);
+            
+            const minLimit = document.getElementById('min_trading_limit').value;
+            if (minLimit) params.min_trading_limit = parseFloat(minLimit);
+
+            const orderbookN = document.getElementById('orderbook_n').value;
+            if (orderbookN) params.orderbook_n = parseInt(orderbookN, 10);
+
+            // JSON Text Area
+            const simBalJson = document.getElementById('simulated_bal_json').value;
+            if (simBalJson && simBalJson.trim() !== '') {
+                 params.simulated_bal_json = simBalJson; // Send as string, ArbitrageRunner will parse
+            }
+
+            // Checkboxes - these should always be sent as true/false
+            params.include_fiat = document.getElementById('include_fiat').checked;
+            params.inter_exchange_trading = document.getElementById('inter_exchange_trading').checked;
+            params.consider_init_bal = document.getElementById('consider_init_bal').checked;
+            params.consider_inter_exc_bal = document.getElementById('consider_inter_exc_bal').checked;
+            
+            console.log("Starting bot with params:", params);
+
+            try {
+                // Send empty object if no specific overrides, so backend uses defaults.
+                // Or, send only parameters that have values.
+                // The current ArbitrageRunner.set_optimizer_parameters resets to default then applies overrides.
+                const payload = Object.keys(params).length > 0 ? params : {};
+                const data = await apiCall('/start_arbitrage', 'POST', payload);
+                alert(data.message || data.error || 'Request sent.');
+                fetchStatus(); 
+            } catch (error) {
+                alert(`Error starting bot: ${error.message}`);
+            }
+        }
+
+        async function stopBot() {
+            try {
+                const data = await apiCall('/stop_arbitrage', 'POST');
+                alert(data.message || data.error || 'Request sent.');
+                fetchStatus(); 
+            } catch (error) {
+                alert(`Error stopping bot: ${error.message}`);
+            }
+        }
+
+        // Initial data load
+        fetchStatus();
+        fetchLogs();
+        fetchHistory();
+
+        // Periodic refresh
+        setInterval(fetchStatus, 7000); // Slightly longer interval for status
+        setInterval(fetchLogs, 15000); 
+        setInterval(fetchHistory, 30000); 
+    </script>
+</body>
+</html>
+```
